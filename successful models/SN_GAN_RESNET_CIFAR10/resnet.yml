@@ -1,0 +1,9 @@
+ngpu: 1
+g_batch_size: 128
+d_batch_size: 64
+lr: 0.0002
+z_dim: 128
+alpha_init: 1
+max_step: 350
+critic: 3
+save_step: 25
