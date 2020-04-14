@@ -12,3 +12,6 @@ DCGAN_CNN_CIFAR10;
 SN_GAN_RESNET_CIFAR10.
 
 These models in "unccessful models" still have some trouble.
+
+
+FID and IS code see "IS_FID"
