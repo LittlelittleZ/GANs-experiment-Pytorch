@@ -22,51 +22,35 @@ class Generator(torch.nn.Module):
         # Input_dim = 128
         # Output_dim = C (number of channels)
         self.activation = nn.ReLU(True)
+        self.bottom_width = 4
+        self.ch = 512
 
         # Z latent vector 128
-        self.conv1 = nn.ConvTranspose2d(in_channels=128, out_channels=1024,
-                                        kernel_size=4, stride=1, padding=0)
+        self.l1 = nn.Linear(128, (self.bottom_width ** 2) * self.ch)
+        nn.init.xavier_uniform_(self.l1.weight.data)
+        # State (512x4x4)
+        self.conv1 = nn.ConvTranspose2d(in_channels=512, out_channels=256,
+                                        kernel_size=4, stride=2, padding=1)
         nn.init.xavier_uniform_(self.conv1.weight.data, math.sqrt(2))
-        self.b1 = nn.BatchNorm2d(num_features=1024)
-        # State (1024x4x4)
-        self.conv2 = nn.ConvTranspose2d(in_channels=1024, out_channels=512,
+        self.b1 = nn.BatchNorm2d(num_features=256)
+        # State (256x8x8)
+        self.conv2 = nn.ConvTranspose2d(in_channels=256, out_channels=128,
                                         kernel_size=4, stride=2, padding=1)
         nn.init.xavier_uniform_(self.conv2.weight.data, math.sqrt(2))
-        self.b2 = nn.BatchNorm2d(num_features=512)
-        # State (512x8x8)
-        self.conv3 = nn.ConvTranspose2d(in_channels=512, out_channels=256,
+        self.b2 = nn.BatchNorm2d(num_features=128)
+        # State (128x16x16)
+        self.conv3 = nn.ConvTranspose2d(in_channels=128, out_channels=64,
                                         kernel_size=4, stride=2, padding=1)
         nn.init.xavier_uniform_(self.conv3.weight.data, math.sqrt(2))
-        self.b3 = nn.BatchNorm2d(num_features=256)
-        # State (256x16x16)
-        self.conv4 = nn.ConvTranspose2d(in_channels=256, out_channels=channels,
-                                        kernel_size=4, stride=2, padding=1)
+        self.b3 = nn.BatchNorm2d(num_features=64)
+        # State (64x32x32)
+        self.conv4 = nn.Conv2d(in_channels=64, out_channels=channels,
+                               kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.conv4.weight.data)
+        # State (3x32x32)
         self.tanh = nn.Tanh()
 
         self.initial()
-
-        # self.main_module = nn.Sequential(
-        #     # Z latent vector 100
-        #     nn.ConvTranspose2d(in_channels=100, out_channels=1024, kernel_size=4, stride=1, padding=0),
-        #     nn.BatchNorm2d(num_features=1024),
-        #     nn.ReLU(True),
-        #
-        #     # State (1024x4x4)
-        #     nn.ConvTranspose2d(in_channels=1024, out_channels=512, kernel_size=4, stride=2, padding=1),
-        #     nn.BatchNorm2d(num_features=512),
-        #     nn.ReLU(True),
-        #
-        #     # State (512x8x8)
-        #     nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=4, stride=2, padding=1),
-        #     nn.BatchNorm2d(num_features=256),
-        #     nn.ReLU(True),
-        #
-        #     # State (256x16x16)
-        #     nn.ConvTranspose2d(in_channels=256, out_channels=channels, kernel_size=4, stride=2, padding=1))
-        # # output of main module --> Image (Cx32x32)
-        #
-        # self.output = nn.Tanh()
 
     def initial(self):
         def weights_init(m):
@@ -78,11 +62,11 @@ class Generator(torch.nn.Module):
             elif classname.find('BatchNorm') != -1:
                 nn.init.normal_(m.weight.data, 1.0, 0.02)
                 nn.init.constant_(m.bias.data, 0)
-
         self.apply(weights_init)
 
     def forward(self, x):
-        x = x.view(x.size(0), -1, 1, 1)
+        x0 = self.l1(x)
+        x = x0.view(x0.size(0), -1, self.bottom_width, self.bottom_width)
         out = self.b1(self.conv1(x))
         out = self.activation(out)
         out = self.b2(self.conv2(out))
@@ -99,47 +83,36 @@ class Discriminator(torch.nn.Module):
         # Filters [256, 512, 1024]
         # Input_dim = channels (Cx64x64)
         # Output_dim = 1
-        self.activation = nn.LeakyReLU(0.2, inplace=True)
+        self.activation = nn.LeakyReLU(0.1, inplace=True)
         # Image (Cx32x32)
         self.conv1 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels=channels, out_channels=256, kernel_size=4, stride=2, padding=1))
+            in_channels=channels, out_channels=64, kernel_size=3, stride=1, padding=1))
         nn.init.xavier_uniform_(self.conv1.weight.data, math.sqrt(2))
-        # State (256x16x16)
         self.conv2 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1))
+            in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1))
         nn.init.xavier_uniform_(self.conv2.weight.data, math.sqrt(2))
-        # State (512x8x8)
+        # State (256x16x16)
         self.conv3 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels=512, out_channels=1024, kernel_size=4, stride=2, padding=1))
+            in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1))
         nn.init.xavier_uniform_(self.conv3.weight.data, math.sqrt(2))
-        # State (1024x4x4)
         self.conv4 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels=1024, out_channels=1, kernel_size=4, stride=1, padding=0))
-        nn.init.xavier_uniform_(self.conv4.weight.data)
-        # self.linear = nn.utils.spectral_norm(nn.Linear(1024, 1, bias=False))
-        # nn.init.xavier_uniform_(self.l5.weight.data)
+            in_channels=128, out_channels=128, kernel_size=4, stride=2, padding=1))
+        nn.init.xavier_uniform_(self.conv4.weight.data, math.sqrt(2))
+        # State (512x8x8)
+        self.conv5 = nn.utils.spectral_norm(nn.Conv2d(
+            in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=0))
+        nn.init.xavier_uniform_(self.conv5.weight.data, math.sqrt(2))
+        self.conv6 = nn.utils.spectral_norm(nn.Conv2d(
+            in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1))
+        nn.init.xavier_uniform_(self.conv6.weight.data, math.sqrt(2))
+        # State (1024x4x4)
+        self.conv7 = nn.utils.spectral_norm(nn.Conv2d(
+            in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=0))
+        nn.init.xavier_uniform_(self.conv7.weight.data)
+        self.l8 = nn.utils.spectral_norm(nn.Linear(512, 1, bias=False))
+        nn.init.xavier_uniform_(self.l8.weight.data)
         # Output 1
-
-        # self.main_module = nn.Sequential(
-        #     # Image (Cx32x32)
-        #     nn.Conv2d(in_channels=channels, out_channels=256, kernel_size=4, stride=2, padding=1),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #
-        #     # State (256x16x16)
-        #     nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2, padding=1),
-        #     nn.BatchNorm2d(512),
-        #     nn.LeakyReLU(0.2, inplace=True),
-        #
-        #     # State (512x8x8)
-        #     nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=4, stride=2, padding=1),
-        #     nn.BatchNorm2d(1024),
-        #     nn.LeakyReLU(0.2, inplace=True))
-        # # outptut of main module --> State (1024x4x4)
-        #
-        # self.output = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=4, stride=1, padding=0)
-        # Output 1
-
-        self.initial()
+        # self.initial()
 
     def initial(self):
         def weights_init(m):
@@ -151,15 +124,17 @@ class Discriminator(torch.nn.Module):
             elif classname.find('BatchNorm') != -1:
                 nn.init.normal_(m.weight.data, 1.0, 0.02)
                 nn.init.constant_(m.bias.data, 0)
-
         self.apply(weights_init)
 
     def forward(self, x):
         out = self.activation(self.conv1(x))
         out = self.activation(self.conv2(out))
         out = self.activation(self.conv3(out))
-        out = self.conv4(out)
-        out = out.view(out.size(0), -1)
+        out = self.activation(self.conv4(out))
+        out = self.activation(self.conv5(out))
+        out = self.activation(self.conv6(out))
+        out = self.activation(self.conv7(out))
+        out = self.l8(out.view(out.size(0), -1))
         return out
 
     # def feature_extraction(self, x):
@@ -369,12 +344,11 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-
+#
 # def test():
-#     net = Generator()
-#     y = net(torch.randn(6, 128))
+#     net = Discriminator()
+#     y = net(torch.randn(6, 3,32,32))
 #     print(y.size())
-#
-#
+
 # test()
 # summary(ResNetDiscriminator(), (3, 32, 32))
